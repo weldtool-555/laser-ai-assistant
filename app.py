@@ -103,28 +103,27 @@ def fallback_parser(text):
         ]
     }
 
-# --- 混雑(503)対策済み Gemini呼び出し ---
+# --- gemini-3.8-flash 専用呼出（混雑時は自動リトライ） ---
 def call_gemini(prompt_text, key):
     client = genai.Client(api_key=key.strip())
-    # 混雑時に順次フォールバックするモデル一覧
-    target_models = ["gemini-3.8-flash", "gemini-3.8-pro", "gemini-3-flash"]
-    last_exception = None
-
-    for model_name in target_models:
-        for attempt in range(2):  # 各モデル2回までリトライ
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt_text,
-                )
-                if response and response.text:
-                    return response.text
-            except Exception as e:
-                last_exception = e
-                time.sleep(1)  # 混雑緩和のため1秒待機
-                continue
-
-    raise last_exception
+    max_retries = 3
+    last_err = None
+    
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model="gemini-3.8-flash",
+                contents=prompt_text,
+            )
+            if response and response.text:
+                return response.text
+        except Exception as e:
+            last_err = e
+            # 一時的な負荷（503）等の場合は少し待機して再試行
+            time.sleep(2 * (attempt + 1))
+            continue
+            
+    raise last_err
 
 # --- タブレイアウト ---
 tab_dxf, tab_chat = st.tabs(["📐 CypCut用DXF作図", "💬 CypCut操作・加工相談QA"])
@@ -148,78 +147,3 @@ with tab_dxf:
 
 指示文: {user_prompt}
 """
-                    reply_text = call_gemini(dxf_prompt, api_key)
-                    m = re.search(r'\{.*\}', reply_text, re.DOTALL)
-                    json_text = m.group(0) if m else reply_text
-                    data = json.loads(json_text)
-                    st.session_state["mode"] = "Gemini AI（社内ルール適用）"
-                except Exception as e:
-                    data = fallback_parser(user_prompt)
-                    st.session_state["mode"] = f"自動寸法解析モード（予備動作: {e}）"
-            else:
-                data = fallback_parser(user_prompt)
-                st.session_state["mode"] = "ローカル直接計算モード"
-
-            st.session_state["geo_data"] = data
-
-    if "geo_data" in st.session_state:
-        st.divider()
-        st.subheader("📐 解析結果 & CypCut用DXFプレビュー")
-        if "mode" in st.session_state:
-            st.caption(f"ステータス: {st.session_state['mode']}")
-        c1, c2 = st.columns([1, 1])
-        d = st.session_state["geo_data"]
-        with c1:
-            st.write("**抽出・計算された寸法データ（JSON）**")
-            st.json(d)
-        with c2:
-            dxf_b, w, h, holes, r = build_cypcut_dxf(d)
-            st.pyplot(render_preview(w, h, holes, r))
-            st.download_button(
-                label="📥 CypCut専用 DXFファイルをダウンロード",
-                data=dxf_b,
-                file_name="laser_part_cypcut.dxf",
-                mime="application/dxf",
-                type="primary"
-            )
-            st.success("✅ CypCut仕様（外枠=White / 内穴=Pink）で生成完了！そのままCypCutにドラッグ＆ドロップ可能です。")
-
-# タブ2: 相談チャット画面
-with tab_chat:
-    st.subheader("CypCut操作・レーザー加工ノウハウ相談")
-    st.caption("登録された操作説明書や切断条件表を優先して回答します。")
-
-    if "chat_history" not in st.session_state:
-        st.session_state["chat_history"] = []
-
-    for msg in st.session_state["chat_history"]:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-
-    if query := st.chat_input("例：リード線の長さはどうやって変更しますか？ / SS400のt3.2を切るときの切断速度は？"):
-        st.session_state["chat_history"].append({"role": "user", "content": query})
-        with st.chat_message("user"):
-            st.markdown(query)
-
-        with st.chat_message("assistant"):
-            if api_key.strip():
-                try:
-                    chat_prompt = f"""
-あなたはファイバーレーザー加工機およびCypCutの熟練エキスパートです。
-以下の【社内ナレッジ（操作説明書・切断条件・ルール）】の内容を最優先で参照して回答してください。
-ナレッジ内に該当する記載がない質問の場合は、レーザー加工・CypCut運用の一般的な最適解を分かりやすく解説してください。
-
-【社内ナレッジ】
-{knowledge_data}
-
-質問: {query}
-"""
-                    ans = call_gemini(chat_prompt, api_key)
-                    st.markdown(ans)
-                    st.session_state["chat_history"].append({"role": "assistant", "content": ans})
-                except Exception as e:
-                    st.error(f"エラー詳細: {e}")
-            else:
-                demo_reply = "APIキーを入力すると、登録された説明書・条件表を参照した正確な回答が得られます。"
-                st.info(demo_reply)
-                st.session_state["chat_history"].append({"role": "assistant", "content": demo_reply})
