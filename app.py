@@ -103,14 +103,15 @@ def fallback_parser(text):
     }
 
 def call_gemini(prompt_text, key):
-    models = ["gemini-2.0-flash", "gemini-1.5-flash"]
+    # 最新の有効モデル名を順に試行
+    models = ["gemini-1.5-flash-latest", "gemini-1.5-flash", "gemini-1.5-pro-latest"]
     payload = json.dumps({"contents": [{"parts": [{"text": prompt_text}]}]}).encode("utf-8")
     last_err = None
     for m in models:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={key.strip()}"
         try:
             req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
-            with urllib.request.urlopen(req, timeout=12) as res:
+            with urllib.request.urlopen(req, timeout=15) as res:
                 res_json = json.loads(res.read().decode("utf-8"))
                 return res_json["candidates"][0]["content"]["parts"][0]["text"]
         except Exception as e:
@@ -140,7 +141,7 @@ with tab_dxf:
 
 指示文: {user_prompt}
 """
-                    reply_text = call_gemini(dxf_prompt, api_key.strip())
+                    reply_text = call_gemini(dxf_prompt, api_key)
                     m = re.search(r'\{.*\}', reply_text, re.DOTALL)
                     json_text = m.group(0) if m else reply_text
                     data = json.loads(json_text)
@@ -206,7 +207,7 @@ with tab_chat:
 
 質問: {query}
 """
-                    ans = call_gemini(chat_prompt, api_key.strip())
+                    ans = call_gemini(chat_prompt, api_key)
                     st.markdown(ans)
                     st.session_state["chat_history"].append({"role": "assistant", "content": ans})
                 except Exception as e:
