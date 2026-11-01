@@ -107,22 +107,14 @@ def fallback_parser(text):
         ]
     }
 
-# --- gemini-3.8-flash 呼出（混雑時は自動待機リトライ） ---
+# --- 高速応答Gemini呼び出し ---
 def call_gemini(prompt_text, key):
     client = genai.Client(api_key=key.strip())
-    last_err = None
-    for attempt in range(3):
-        try:
-            response = client.models.generate_content(
-                model="gemini-3.8-flash",
-                contents=prompt_text,
-            )
-            if response and response.text:
-                return response.text
-        except Exception as e:
-            last_err = e
-            time.sleep(2)
-    raise last_err
+    response = client.models.generate_content(
+        model="gemini-3.8-flash",
+        contents=prompt_text,
+    )
+    return response.text
 
 # --- タブレイアウト ---
 tab_dxf, tab_chat = st.tabs(["📐 CypCut用DXF作図", "💬 CypCut操作・加工相談QA"])
@@ -201,22 +193,23 @@ with tab_chat:
 
         with st.chat_message("assistant"):
             if api_key.strip():
-                try:
-                    chat_prompt = f"""
-あなたはファイバーレーザー加工機およびCypCutの熟練エキスパートです。
-以下の【社内ナレッジ（操作説明書・切断条件・ルール）】の内容を最優先で参照して回答してください。
-ナレッジ内に該当する記載がない質問の場合は、レーザー加工・CypCut運用の一般的な最適解を分かりやすく解説してください。
+                # 処理中アイコンを表示してフリーズに見える現象を解消
+                with st.spinner("マニュアルと切断条件を照合中..."):
+                    try:
+                        chat_prompt = f"""
+あなたはファイバーレーザー加工機およびCAD/CAMソフトウェア『CypCut』のエキスパートです。
+以下の【社内ナレッジ（操作説明書・切断条件・ルール）】を最優先で参照し、質問に対して実践的かつ分かりやすく簡潔に回答してください。
 
 【社内ナレッジ】
 {knowledge_data}
 
 質問: {query}
 """
-                    ans = call_gemini(chat_prompt, api_key)
-                    st.markdown(ans)
-                    st.session_state["chat_history"].append({"role": "assistant", "content": ans})
-                except Exception as e:
-                    st.error(f"エラー詳細: {e}")
+                        ans = call_gemini(chat_prompt, api_key)
+                        st.markdown(ans)
+                        st.session_state["chat_history"].append({"role": "assistant", "content": ans})
+                    except Exception as e:
+                        st.error(f"エラー詳細: {e}")
             else:
                 demo_reply = "APIキーを入力すると、登録された説明書・条件表を参照した正確な回答が得られます。"
                 st.info(demo_reply)
