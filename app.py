@@ -3,7 +3,7 @@ import ezdxf
 from ezdxf import colors
 import json, io, re, os
 import matplotlib.pyplot as plt
-import google.generativeai as genai
+from google import genai
 
 st.set_page_config(page_title="Laser Cut DXF & CypCut Assistant", layout="wide")
 st.title("⚡ レーザー加工 & CypCut専用 AIアシスタント")
@@ -103,19 +103,15 @@ def fallback_parser(text):
         ]
     }
 
-# --- 公式SDKによるGemini呼び出し ---
+# --- 最新公式SDKによるGemini呼び出し ---
 def call_gemini(prompt_text, key):
-    genai.configure(api_key=key.strip())
-    # 利用可能な標準モデルを順に試行
-    for model_name in ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]:
-        try:
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content(prompt_text)
-            if response and response.text:
-                return response.text
-        except Exception:
-            continue
-    raise RuntimeError("Gemini APIへの接続に失敗しました。キーの権限または形式を確認してください。")
+    client = genai.Client(api_key=key.strip())
+    # 安定版の最新高速モデルを使用
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt_text,
+    )
+    return response.text
 
 # --- タブレイアウト ---
 tab_dxf, tab_chat = st.tabs(["📐 CypCut用DXF作図", "💬 CypCut操作・加工相談QA"])
@@ -209,7 +205,8 @@ with tab_chat:
                     st.markdown(ans)
                     st.session_state["chat_history"].append({"role": "assistant", "content": ans})
                 except Exception as e:
-                    st.error(f"エラーが発生しました: {e}")
+                    # 実際のエラー内容をそのまま表示
+                    st.error(f"エラー詳細: {e}")
             else:
                 demo_reply = "APIキーを入力すると、登録された説明書・条件表を参照した正確な回答が得られます。"
                 st.info(demo_reply)
