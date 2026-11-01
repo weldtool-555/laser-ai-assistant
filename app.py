@@ -103,12 +103,11 @@ def fallback_parser(text):
         ]
     }
 
-# --- 最新公式SDKによるGemini呼び出し ---
+# --- 公式SDKによるGemini呼び出し（gemini-3.8-flash指定） ---
 def call_gemini(prompt_text, key):
     client = genai.Client(api_key=key.strip())
-    # 安定版の最新高速モデルを使用
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-3.8-flash",
         contents=prompt_text,
     )
     return response.text
@@ -205,7 +204,6 @@ with tab_chat:
                     st.markdown(ans)
                     st.session_state["chat_history"].append({"role": "assistant", "content": ans})
                 except Exception as e:
-                    # 実際のエラー内容をそのまま表示
                     st.error(f"エラー詳細: {e}")
             else:
                 demo_reply = "APIキーを入力すると、登録された説明書・条件表を参照した正確な回答が得られます。"
