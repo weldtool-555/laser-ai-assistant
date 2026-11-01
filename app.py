@@ -1,7 +1,7 @@
 import streamlit as st
 import ezdxf
 from ezdxf import colors
-import json, io, re, os
+import json, io, re, os, time
 import matplotlib.pyplot as plt
 from google import genai
 
@@ -103,14 +103,28 @@ def fallback_parser(text):
         ]
     }
 
-# --- 公式SDKによるGemini呼び出し（gemini-3.8-flash指定） ---
+# --- 混雑(503)対策済み Gemini呼び出し ---
 def call_gemini(prompt_text, key):
     client = genai.Client(api_key=key.strip())
-    response = client.models.generate_content(
-        model="gemini-3.8-flash",
-        contents=prompt_text,
-    )
-    return response.text
+    # 混雑時に順次フォールバックするモデル一覧
+    target_models = ["gemini-3.8-flash", "gemini-3.8-pro", "gemini-3-flash"]
+    last_exception = None
+
+    for model_name in target_models:
+        for attempt in range(2):  # 各モデル2回までリトライ
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt_text,
+                )
+                if response and response.text:
+                    return response.text
+            except Exception as e:
+                last_exception = e
+                time.sleep(1)  # 混雑緩和のため1秒待機
+                continue
+
+    raise last_exception
 
 # --- タブレイアウト ---
 tab_dxf, tab_chat = st.tabs(["📐 CypCut用DXF作図", "💬 CypCut操作・加工相談QA"])
