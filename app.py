@@ -1,8 +1,9 @@
 import streamlit as st
 import ezdxf
 from ezdxf import colors
-import json, io, re, os, urllib.request, urllib.error
+import json, io, re, os
 import matplotlib.pyplot as plt
+import google.generativeai as genai
 
 st.set_page_config(page_title="Laser Cut DXF & CypCut Assistant", layout="wide")
 st.title("⚡ レーザー加工 & CypCut専用 AIアシスタント")
@@ -102,22 +103,19 @@ def fallback_parser(text):
         ]
     }
 
+# --- 公式SDKによるGemini呼び出し ---
 def call_gemini(prompt_text, key):
-    # 最新の有効モデル名を順に試行
-    models = ["gemini-1.5-flash-latest", "gemini-1.5-flash", "gemini-1.5-pro-latest"]
-    payload = json.dumps({"contents": [{"parts": [{"text": prompt_text}]}]}).encode("utf-8")
-    last_err = None
-    for m in models:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={key.strip()}"
+    genai.configure(api_key=key.strip())
+    # 利用可能な標準モデルを順に試行
+    for model_name in ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]:
         try:
-            req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
-            with urllib.request.urlopen(req, timeout=15) as res:
-                res_json = json.loads(res.read().decode("utf-8"))
-                return res_json["candidates"][0]["content"]["parts"][0]["text"]
-        except Exception as e:
-            last_err = e
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(prompt_text)
+            if response and response.text:
+                return response.text
+        except Exception:
             continue
-    raise last_err
+    raise RuntimeError("Gemini APIへの接続に失敗しました。キーの権限または形式を確認してください。")
 
 # --- タブレイアウト ---
 tab_dxf, tab_chat = st.tabs(["📐 CypCut用DXF作図", "💬 CypCut操作・加工相談QA"])
