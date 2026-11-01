@@ -94,4 +94,63 @@ def fallback_parser(text):
     dia = float(m_dia.group(1)) if m_dia else 6.0
 
     return {
-        "outer": {"width": w, "height": h,
+        "outer": {
+            "width": w,
+            "height": h,
+            "corner_radius": r
+        },
+        "holes": [
+            {"x": offset, "y": offset, "diameter": dia},
+            {"x": w - offset, "y": offset, "diameter": dia},
+            {"x": offset, "y": h - offset, "diameter": dia},
+            {"x": w - offset, "y": h - offset, "diameter": dia}
+        ]
+    }
+
+# --- gemini-3.8-flash 呼出（混雑時は自動待機リトライ） ---
+def call_gemini(prompt_text, key):
+    client = genai.Client(api_key=key.strip())
+    last_err = None
+    for attempt in range(3):
+        try:
+            response = client.models.generate_content(
+                model="gemini-3.8-flash",
+                contents=prompt_text,
+            )
+            if response and response.text:
+                return response.text
+        except Exception as e:
+            last_err = e
+            time.sleep(2)
+    raise last_err
+
+# --- タブレイアウト ---
+tab_dxf, tab_chat = st.tabs(["📐 CypCut用DXF作図", "💬 CypCut操作・加工相談QA"])
+
+# タブ1: DXF作図画面
+with tab_dxf:
+    st.subheader("図面指示からCypCut用DXFを自動生成")
+    user_prompt = st.text_area("形状の指示文", value="150x100mmの角丸R5プレート。四隅の端からそれぞれ20mmの位置にφ6の穴を4つあけて。", height=100)
+
+    if st.button("DXFを生成する（テキスト）", type="primary"):
+        with st.spinner("社内ルール照合 & 寸法生成中..."):
+            data = None
+            if api_key.strip():
+                try:
+                    dxf_prompt = f"""
+あなたは板金レーザー加工の専門CADアシスタントです。
+以下の【社内ナレッジ（操作説明書・切断条件・ルール）】を最優先で遵守して、指示文から outer(width, height, corner_radius) と holes(x, y, diameter) のJSONデータのみを出力してください。
+
+【社内ナレッジ】
+{knowledge_data}
+
+指示文: {user_prompt}
+"""
+                    reply_text = call_gemini(dxf_prompt, api_key)
+                    m = re.search(r'\{.*\}', reply_text, re.DOTALL)
+                    json_text = m.group(0) if m else reply_text
+                    data = json.loads(json_text)
+                    st.session_state["mode"] = "Gemini AI（社内ルール適用）"
+                except Exception as e:
+                    data = fallback_parser(user_prompt)
+                    st.session_state["mode"] = f"自動寸法解析モード（予備動作: {e}）
