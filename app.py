@@ -153,4 +153,71 @@ with tab_dxf:
                     st.session_state["mode"] = "Gemini AI（社内ルール適用）"
                 except Exception as e:
                     data = fallback_parser(user_prompt)
-                    st.session_state["mode"] = f"自動寸法解析モード（予備動作: {e}）
+                    st.session_state["mode"] = f"自動寸法解析モード（予備動作: {e}）"
+            else:
+                data = fallback_parser(user_prompt)
+                st.session_state["mode"] = "ローカル直接計算モード"
+
+            st.session_state["geo_data"] = data
+
+    if "geo_data" in st.session_state:
+        st.divider()
+        st.subheader("📐 解析結果 & CypCut用DXFプレビュー")
+        if "mode" in st.session_state:
+            st.caption(f"ステータス: {st.session_state['mode']}")
+        c1, c2 = st.columns([1, 1])
+        d = st.session_state["geo_data"]
+        with c1:
+            st.write("**抽出・計算された寸法データ（JSON）**")
+            st.json(d)
+        with c2:
+            dxf_b, w, h, holes, r = build_cypcut_dxf(d)
+            st.pyplot(render_preview(w, h, holes, r))
+            st.download_button(
+                label="📥 CypCut専用 DXFファイルをダウンロード",
+                data=dxf_b,
+                file_name="laser_part_cypcut.dxf",
+                mime="application/dxf",
+                type="primary"
+            )
+            st.success("✅ CypCut仕様（外枠=White / 内穴=Pink）で生成完了！そのままCypCutにドラッグ＆ドロップ可能です。")
+
+# タブ2: 相談チャット画面
+with tab_chat:
+    st.subheader("CypCut操作・レーザー加工ノウハウ相談")
+    st.caption("登録された操作説明書や切断条件表を優先して回答します。")
+
+    if "chat_history" not in st.session_state:
+        st.session_state["chat_history"] = []
+
+    for msg in st.session_state["chat_history"]:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    if query := st.chat_input("例：リード線の長さはどうやって変更しますか？ / SS400のt3.2を切るときの切断速度は？"):
+        st.session_state["chat_history"].append({"role": "user", "content": query})
+        with st.chat_message("user"):
+            st.markdown(query)
+
+        with st.chat_message("assistant"):
+            if api_key.strip():
+                try:
+                    chat_prompt = f"""
+あなたはファイバーレーザー加工機およびCypCutの熟練エキスパートです。
+以下の【社内ナレッジ（操作説明書・切断条件・ルール）】の内容を最優先で参照して回答してください。
+ナレッジ内に該当する記載がない質問の場合は、レーザー加工・CypCut運用の一般的な最適解を分かりやすく解説してください。
+
+【社内ナレッジ】
+{knowledge_data}
+
+質問: {query}
+"""
+                    ans = call_gemini(chat_prompt, api_key)
+                    st.markdown(ans)
+                    st.session_state["chat_history"].append({"role": "assistant", "content": ans})
+                except Exception as e:
+                    st.error(f"エラー詳細: {e}")
+            else:
+                demo_reply = "APIキーを入力すると、登録された説明書・条件表を参照した正確な回答が得られます。"
+                st.info(demo_reply)
+                st.session_state["chat_history"].append({"role": "assistant", "content": demo_reply})
